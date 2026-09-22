@@ -1,26 +1,26 @@
 package handler
 
 import (
+	"bytes"
 	"fmt"
-	"strings"
 
 	"ramdb/aof"
 	"ramdb/db"
 	"ramdb/server"
 )
 
-// StringResponse implementa a interface server. Response do seu colega. Cool
-type StringResponse struct {
-	Data  string
+// ByteResponse substitui a StringResponse, operando nativamente com bytes.
+type ByteResponse struct {
+	Data  []byte
 	Error error
 }
 
-func (r StringResponse) Fail() error {
+func (r ByteResponse) Fail() error {
 	return r.Error
 }
 
-func (r StringResponse) RawData() []byte {
-	return []byte(r.Data)
+func (r ByteResponse) RawData() []byte {
+	return r.Data
 }
 
 type CommandHandler struct {
@@ -35,59 +35,61 @@ func New(db *db.Engine, a *aof.AOF) *CommandHandler {
 	}
 }
 
-// método para o TCP
+// Handle atende as requisições TCP operando diretamente na memória com bytes.
 func (h *CommandHandler) Handle(r server.Request) server.Response {
-	payload := strings.TrimSpace(string(r.RequestBody))
-	args := strings.Split(payload, " ")
+	payload := bytes.TrimSpace(r.RequestBody)
+	args := bytes.Split(payload, []byte(" "))
 
-	if len(args) == 0 || args[0] == "" {
-		return StringResponse{Error: fmt.Errorf("comando vazio")}
+	if len(args) == 0 || len(args[0]) == 0 {
+		return ByteResponse{Error: fmt.Errorf("comando vazio")}
 	}
 
-	comando := strings.ToUpper(args[0])
+	comando := bytes.ToUpper(args[0])
 
-	switch comando {
+	// Switch em Go não suporta []byte nativamente, mas converter apenas os ~3 bytes do comando é inofensivo
+	switch string(comando) {
 	case "SET":
 		if len(args) < 3 {
-			return StringResponse{Error: fmt.Errorf("uso correto: SET <chave> <valor>")}
+			return ByteResponse{Error: fmt.Errorf("uso correto: SET <chave> <valor>")}
 		}
 		chave := args[1]
-		valor := strings.Join(args[2:], " ")
-		err := h.db.Set(chave, valor)
+		valor := bytes.Join(args[2:], []byte(" ")) // Junta o resto dos bytes com espaços
+
+		err := h.db.Put(chave, valor)
 		if err != nil {
-			return StringResponse{Error: err}
+			return ByteResponse{Error: err}
 		}
-		h.db.Set(chave, valor) //Não duplicaram isso aqui sem querer não?
+
 		if h.aof != nil {
-			h.aof.Append(payload + "\n")
+			// Cast para string mantido temporariamente apenas para não quebrar a tipagem do canal do AOF
+			h.aof.Append(string(payload) + "\n")
 		}
-		return StringResponse{Data: "OK"}
+		return ByteResponse{Data: []byte("OK")}
 
 	case "GET":
 		if len(args) < 2 {
-			return StringResponse{Error: fmt.Errorf("uso correto: GET <chave>")}
+			return ByteResponse{Error: fmt.Errorf("uso correto: GET <chave>")}
 		}
 		chave := args[1]
 		valor, err := h.db.Get(chave)
 		if err != nil {
-			return StringResponse{Error: err}
+			return ByteResponse{Error: err}
 		}
-		return StringResponse{Data: valor}
+		return ByteResponse{Data: valor}
 
 	case "DEL":
 		if len(args) < 2 {
-			return StringResponse{Error: fmt.Errorf("uso correto: DEL <chave>")}
+			return ByteResponse{Error: fmt.Errorf("uso correto: DEL <chave>")}
 		}
 		chave := args[1]
 		h.db.Delete(chave)
 
 		if h.aof != nil {
-			h.aof.Append(payload + "\n")
+			h.aof.Append(string(payload) + "\n")
 		}
-
-		return StringResponse{Data: "OK"}
+		return ByteResponse{Data: []byte("OK")}
 
 	default:
-		return StringResponse{Error: fmt.Errorf("comando desconhecido: %s", comando)}
+		return ByteResponse{Error: fmt.Errorf("comando desconhecido: %s", string(comando))}
 	}
 }

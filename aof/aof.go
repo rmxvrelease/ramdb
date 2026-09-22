@@ -19,6 +19,7 @@ func NewAOF(path string) (*AOF, error) {
 		return nil, err
 	}
 
+	// (PESSOA2) HÁ DE SER MUDADO PARA ACEITAR OS BYTES
 	aof := &AOF{
 		file: f,
 		ch:   make(chan string, 1024), //buffer de 1024 comandos para evitar bloqueio do handler
@@ -44,6 +45,7 @@ func (a *AOF) worker() {
 				a.file.Sync()
 				return
 			}
+			// (PESSOA2) HÁ DE SER MUDADO PARA ACEITAR OS BYTES
 			_, err := a.file.WriteString(cmd)
 			if err != nil {
 				log.Println("Erro ao gravar no AOF:", err)
