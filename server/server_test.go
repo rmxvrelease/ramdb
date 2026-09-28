@@ -20,7 +20,9 @@ func (ResponseCompatible) RawData() []byte {
 func TestSandbox(t *testing.T) {
 	go func() {
 		srv := server.Server{
-			ListenAddress: "0.0.0.0:8000",
+			ListenAddress:  "0.0.0.0:8000",
+			MaxConnections: 50,
+			MessageMaxSize: 1024 * 10,
 			RequestHandleCallback: func(server.Request) server.Response {
 				return ResponseCompatible{}
 			},
@@ -36,9 +38,8 @@ func TestSandbox(t *testing.T) {
 	if err != nil {
 		println(err.Error())
 	}
-	conn.Write(append([]byte{32, 8, 5, 1, 1, 1, 1, 0, 2, 0, 0}, "Eu gosto de batatata"...))
+	conn.Write(append([]byte{32, 8, 5, 1, 1, 1, 1, 0, 2, 0, 0, 0, 1, 0, 0}, "Eu gosto de batata"...))
 	time.Sleep(time.Second * 1)
 	conn.Close()
-	time.Sleep(time.Second * 3)
-
+	time.Sleep(time.Second * 1)
 }

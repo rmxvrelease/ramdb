@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	bufferedreader "ramdb/utils/buffered_reader"
 )
@@ -251,6 +252,198 @@ func TestReadGenericoComTipoNaoByte(t *testing.T) {
 	for i := range origem {
 		if lidos[i] != origem[i] {
 			t.Fatalf("ponto %d = %v, esperado %v", i, lidos[i], origem[i])
+		}
+	}
+}
+
+// eofReader entrega os itens de data e devolve io.EOF junto com os ultimos
+// bytes, na mesma chamada -- comportamento permitido pelo contrato io.Reader.
+type eofReader[T any] struct {
+	data  []T
+	chunk int
+	calls int
+}
+
+func (r *eofReader[T]) Read(p []T) (int, error) {
+	r.calls++
+	n := min(len(p), len(r.data))
+	if r.chunk > 0 {
+		n = min(n, r.chunk)
+	}
+	copy(p, r.data[:n])
+	r.data = r.data[n:]
+	if len(r.data) == 0 {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+// zeroReader nunca progride: devolve 0 itens sem erro.
+type zeroReader[T any] struct{ calls int }
+
+func (r *zeroReader[T]) Read(p []T) (int, error) {
+	r.calls++
+	return 0, nil
+}
+
+func TestReadExactPreencheOBufferCompleto(t *testing.T) {
+	src := &sliceReader[byte]{data: bytesOf("hello world"), chunk: 3}
+	reader := bufferedreader.New[byte](src, 4)
+
+	buf := make([]byte, 11)
+	n, err := reader.ReadExact(buf)
+	if err != nil {
+		t.Fatalf("ReadExact: erro inesperado: %v", err)
+	}
+	if n != 11 {
+		t.Fatalf("ReadExact: n = %d, esperado 11", n)
+	}
+	if got := string(buf); got != "hello world" {
+		t.Fatalf("ReadExact: buf = %q, esperado %q", got, "hello world")
+	}
+}
+
+func TestReadExactNaoReportaEOFQuandoPreencheTudo(t *testing.T) {
+	// A fonte devolve os 5 bytes e io.EOF na mesma chamada. O pedido foi
+	// atendido por inteiro, entao ReadExact deve reportar sucesso.
+	src := &eofReader[byte]{data: bytesOf("hello")}
+	reader := bufferedreader.New[byte](src, 4)
+
+	buf := make([]byte, 5)
+	n, err := reader.ReadExact(buf)
+	if err != nil {
+		t.Fatalf("ReadExact: erro inesperado: %v", err)
+	}
+	if n != 5 {
+		t.Fatalf("ReadExact: n = %d, esperado 5", n)
+	}
+	if got := string(buf); got != "hello" {
+		t.Fatalf("ReadExact: buf = %q, esperado %q", got, "hello")
+	}
+}
+
+func TestReadExactRetornaTotalEscritoQuandoAFonteAcaba(t *testing.T) {
+	// Pede 16 com apenas 10 disponiveis: o n retornado precisa ser 10 (o total
+	// realmente escrito em buf), e nao o tamanho da ultima leitura.
+	src := &sliceReader[byte]{data: bytesOf("0123456789")}
+	reader := bufferedreader.New[byte](src, 4)
+
+	buf := make([]byte, 16)
+	n, err := reader.ReadExact(buf)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("ReadExact: err = %v, esperado io.EOF", err)
+	}
+	if n != 10 {
+		t.Fatalf("ReadExact: n = %d, esperado 10", n)
+	}
+	if got := string(buf[:n]); got != "0123456789" {
+		t.Fatalf("ReadExact: buf[:n] = %q, esperado %q", got, "0123456789")
+	}
+}
+
+func TestReadExactLeituraSemProgressoViraErrUnexpectedEOF(t *testing.T) {
+	// Uma fonte que devolve (0, nil) para sempre nao pode travar ReadExact.
+	// O teste roda em outra goroutine para que uma regressao falhe por timeout
+	// em vez de pendurar a suite inteira.
+	type resultado struct {
+		n   int
+		err error
+	}
+	done := make(chan resultado, 1)
+	go func() {
+		reader := bufferedreader.New[byte](&zeroReader[byte]{}, 4)
+		n, err := reader.ReadExact(make([]byte, 8))
+		done <- resultado{n, err}
+	}()
+
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, io.ErrUnexpectedEOF) {
+			t.Fatalf("ReadExact: err = %v, esperado io.ErrUnexpectedEOF", got.err)
+		}
+		if got.n != 0 {
+			t.Fatalf("ReadExact: n = %d, esperado 0", got.n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ReadExact: nao retornou -- laco infinito com fonte sem progresso")
+	}
+}
+
+func TestReadExactPropagaErroDoReaderBase(t *testing.T) {
+	falha := errors.New("falha de leitura")
+	reader := bufferedreader.New[byte](&errReader[byte]{err: falha}, 4)
+
+	buf := make([]byte, 4)
+	n, err := reader.ReadExact(buf)
+	if !errors.Is(err, falha) {
+		t.Fatalf("ReadExact: err = %v, esperado %v", err, falha)
+	}
+	if n != 0 {
+		t.Fatalf("ReadExact: n = %d, esperado 0", n)
+	}
+}
+
+func TestReadExactAproveitaOBufferInterno(t *testing.T) {
+	// Um Read inicial enche o buffer interno; o ReadExact seguinte deve ser
+	// atendido sem tocar na fonte.
+	src := &sliceReader[byte]{data: bytesOf("hello world")}
+	reader := bufferedreader.New[byte](src, 8)
+
+	if _, err := reader.Read(make([]byte, 2)); err != nil {
+		t.Fatalf("Read: erro inesperado: %v", err)
+	}
+	chamadas := src.calls
+
+	buf := make([]byte, 3)
+	n, err := reader.ReadExact(buf)
+	if err != nil {
+		t.Fatalf("ReadExact: erro inesperado: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("ReadExact: n = %d, esperado 3", n)
+	}
+	if got := string(buf); got != "llo" {
+		t.Fatalf("ReadExact: buf = %q, esperado %q", got, "llo")
+	}
+	if src.calls != chamadas {
+		t.Fatalf("ReadExact: chamou a fonte %d vez(es) a mais", src.calls-chamadas)
+	}
+}
+
+func TestReadExactBufferVazio(t *testing.T) {
+	src := &sliceReader[byte]{data: bytesOf("hello")}
+	reader := bufferedreader.New[byte](src, 4)
+
+	n, err := reader.ReadExact(nil)
+	if err != nil {
+		t.Fatalf("ReadExact: erro inesperado: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("ReadExact: n = %d, esperado 0", n)
+	}
+	if src.calls != 0 {
+		t.Fatalf("ReadExact: chamou a fonte %d vez(es) com buffer vazio", src.calls)
+	}
+}
+
+func TestReadExactGenericoComTipoNaoByte(t *testing.T) {
+	type ponto struct{ X, Y int }
+
+	origem := []ponto{{1, 2}, {3, 4}, {5, 6}, {7, 8}}
+	src := &sliceReader[ponto]{data: origem, chunk: 1}
+	reader := bufferedreader.New[ponto](src, 2)
+
+	buf := make([]ponto, 4)
+	n, err := reader.ReadExact(buf)
+	if err != nil {
+		t.Fatalf("ReadExact: erro inesperado: %v", err)
+	}
+	if n != 4 {
+		t.Fatalf("ReadExact: n = %d, esperado 4", n)
+	}
+	for i := range origem {
+		if buf[i] != origem[i] {
+			t.Fatalf("ponto %d = %v, esperado %v", i, buf[i], origem[i])
 		}
 	}
 }
