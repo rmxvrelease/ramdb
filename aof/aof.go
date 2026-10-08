@@ -9,24 +9,23 @@ import (
 
 type AOF struct {
 	file *os.File
-	ch   chan string
+	ch   chan []byte // Adeus strings! Tráfego nativo de bytes
 	wg   sync.WaitGroup
 }
 
 func NewAOF(path string) (*AOF, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0666)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0667)
 	if err != nil {
 		return nil, err
 	}
 
-	// (PESSOA2) HÁ DE SER MUDADO PARA ACEITAR OS BYTES
 	aof := &AOF{
 		file: f,
-		ch:   make(chan string, 1024), //buffer de 1024 comandos para evitar bloqueio do handler
+		ch:   make(chan []byte, 1024), // Buffer de 1024 slices de bytes
 	}
 
 	aof.wg.Add(1)
-	go aof.worker() //inicia goroutine de gravação em background
+	go aof.worker() // inicia goroutine de gravação em background
 
 	return aof, nil
 }
@@ -34,7 +33,7 @@ func NewAOF(path string) (*AOF, error) {
 func (a *AOF) worker() {
 	defer a.wg.Done()
 
-	//sincroniza arquivo com o disco a cada segundo
+	// sincroniza arquivo com o disco a cada segundo
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -45,8 +44,8 @@ func (a *AOF) worker() {
 				a.file.Sync()
 				return
 			}
-			// (PESSOA2) HÁ DE SER MUDADO PARA ACEITAR OS BYTES
-			_, err := a.file.WriteString(cmd)
+			// Gravamos os bytes diretamente no arquivo
+			_, err := a.file.Write(cmd)
 			if err != nil {
 				log.Println("Erro ao gravar no AOF:", err)
 			}
@@ -56,8 +55,16 @@ func (a *AOF) worker() {
 	}
 }
 
-func (a *AOF) Append(cmd string) {
-	a.ch <- cmd
+// Append agora recebe bytes diretamente
+func (a *AOF) Append(cmd []byte) {
+	// Fazemos uma cópia rápida e segura adicionando o '\n'.
+	// Isso impede que, se o servidor TCP reutilizar o buffer de leitura subjacente,
+	// nós gravemos "lixo" acidentalmente no disco.
+	buf := make([]byte, len(cmd)+1)
+	copy(buf, cmd)
+	buf[len(cmd)] = '\n'
+
+	a.ch <- buf
 }
 
 func (a *AOF) Close() {

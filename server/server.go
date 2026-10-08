@@ -31,8 +31,14 @@ type Response interface {
 	RawData() []byte // Eu gosto de batata
 }
 
-func encodeResponse(Response) []byte {
-	return []byte{}
+func encodeResponse(r Response) []byte {
+	// Se a resposta falhou (ex: chave não encontrada), retornamos a string do erro
+	if r.Fail() != nil {
+		return []byte("ERRO: " + r.Fail().Error())
+	}
+
+	// Caso contrário, retornamos o dado bruto (que já é []byte graças ao handler.go)
+	return r.RawData()
 }
 
 // lê de byte a byte do buffer até encontrar a sequência [b01, b01, b01, b01]

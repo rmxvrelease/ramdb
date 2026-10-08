@@ -119,3 +119,105 @@ func TestEngine_ConcurrentStress_WithLogs(t *testing.T) {
 	}
 	logger.Println("Teste de concorrência finalizado com 100% de integridade.")
 }
+
+func TestEngine_Tombstone_Lifecycle(t *testing.T) {
+	limparSSTables()
+	defer limparSSTables()
+
+	engine := NewEngine()
+
+	t.Run("Cenario 1: Delecao pura na MemTable", func(t *testing.T) {
+		key := []byte("heroi1")
+		engine.Put(key, []byte("batman"))
+
+		engine.Delete(key) // Deleta imediatamente
+
+		_, err := engine.Get(key)
+		if err != ErrKeyNotFound {
+			t.Errorf("Esperava ErrKeyNotFound, recebeu: %v", err)
+		}
+	})
+
+	t.Run("Cenario 2: Lápide na RAM mascarando dado no Disco", func(t *testing.T) {
+		key := []byte("heroi2")
+		engine.Put(key, []byte("superman"))
+
+		for i := 0; i < MemTableLimit; i++ {
+			engine.Put([]byte(fmt.Sprintf("lixo_%d", i)), []byte("dado"))
+		}
+		// AQUI É 1: É o primeiro flush do ciclo de vida
+		esperarFlush(t, engine, 1)
+
+		engine.Delete(key)
+
+		_, err := engine.Get(key)
+		if err != ErrKeyNotFound {
+			t.Errorf("A lápide na RAM falhou em mascarar o dado do disco! Erro: %v", err)
+		}
+	})
+
+	t.Run("Cenario 3: A própria Lápide foi pro Disco", func(t *testing.T) {
+		key := []byte("heroi3")
+		engine.Put(key, []byte("flash"))
+		engine.Delete(key)
+
+		for i := 0; i < MemTableLimit; i++ {
+			engine.Put([]byte(fmt.Sprintf("lixo2_%d", i)), []byte("dado"))
+		}
+		// AQUI É 2: É o segundo flush deste teste
+		esperarFlush(t, engine, 2)
+
+		_, err := engine.Get(key)
+		if err != ErrKeyNotFound {
+			t.Errorf("O motor não reconheceu a lápide no disco! Erro: %v", err)
+		}
+	})
+}
+func TestEngine_Compaction(t *testing.T) {
+	limparSSTables()
+	defer limparSSTables()
+
+	engine := NewEngine()
+
+	// 1. GERAR ARQUIVO 1 (Dados Originais)
+	engine.Put([]byte("heroi1"), []byte("batman"))
+	engine.Put([]byte("heroi2"), []byte("superman"))
+	// Enche a MemTable para forçar o flush pro disco
+	for i := 0; i < MemTableLimit; i++ {
+		engine.Put([]byte(fmt.Sprintf("lixo1_%d", i)), []byte("dado"))
+	}
+	//time.Sleep(1 * time.Second) // Dá tempo do Worker de Disco salvar sstable_X.data
+	esperarFlush(t, engine, 1)
+	// 2. GERAR ARQUIVO 2 (Atualização e Deleção)
+	engine.Put([]byte("heroi1"), []byte("o_cavaleiro_das_trevas")) // Atualiza a chave
+	engine.Delete([]byte("heroi2"))                                // Marca a Lápide
+	for i := 0; i < MemTableLimit; i++ {
+		engine.Put([]byte(fmt.Sprintf("lixo2_%d", i)), []byte("dado"))
+	}
+	//time.Sleep(1 * time.Second)
+	esperarFlush(t, engine, 2)
+	// 3. GERAR ARQUIVO 3 (Gatilho da Compactação)
+	// O worker só roda se tiver len(sstables) >= 3
+	engine.Put([]byte("vilao1"), []byte("coringa"))
+	for i := 0; i < MemTableLimit; i++ {
+		engine.Put([]byte(fmt.Sprintf("lixo3_%d", i)), []byte("dado"))
+	}
+	//time.Sleep(1 * time.Second)
+	esperarFlush(t, engine, 3)
+	// Neste exato momento, temos 3 arquivos separados no disco, com dados duplicados e lápides.
+	fmt.Println("=== Aguardando o Worker de Compactação fazer a faxina... ===")
+	// Esperamos 3 segundos (tempo suficiente para o Ticker de 2s disparar)
+	//time.Sleep(3 * time.Second)
+	time.Sleep(300 * time.Millisecond)
+	// Validação 1: O heroi2 TEM que estar apagado permanentemente
+	_, err := engine.Get([]byte("heroi2"))
+	if err != ErrKeyNotFound {
+		t.Errorf("Falha: O heroi2 (deletado) ainda foi encontrado! Erro: %v", err)
+	}
+
+	// Validação 2: O heroi1 tem que retornar a versão ATUALIZADA (do arquivo 2), e não a original
+	val, err := engine.Get([]byte("heroi1"))
+	if err != nil || string(val) != "o_cavaleiro_das_trevas" {
+		t.Errorf("Falha ao recuperar a versão atualizada do heroi1. Retornou: %s", string(val))
+	}
+}

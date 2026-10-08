@@ -13,14 +13,21 @@ func WriteSSTable(data []KVPair, filepath string) error {
 	var buf bytes.Buffer
 
 	for _, kv := range data {
-		// Grava tamanho e bytes da chave
+		// 1. Grava 1 byte indicando se é Tombstone (1) ou Não (0)
+		var tombByte byte = 0
+		if kv.Tombstone {
+			tombByte = 1
+		}
+		buf.WriteByte(tombByte)
+
+		// 2. Grava tamanho e bytes da chave
 		err := binary.Write(&buf, binary.LittleEndian, uint32(len(kv.Key)))
 		if err != nil {
 			return err
 		}
 		buf.Write(kv.Key)
 
-		// Grava tamanho e bytes do valor
+		// 3. Grava tamanho e bytes do valor
 		err = binary.Write(&buf, binary.LittleEndian, uint32(len(kv.Value)))
 		if err != nil {
 			return err
@@ -28,7 +35,6 @@ func WriteSSTable(data []KVPair, filepath string) error {
 		buf.Write(kv.Value)
 	}
 
-	// Chama o Encrypt APENAS com os bytes, sem pedir a chave (já tá no crypto.go)
 	encryptedData, err := Encrypt(buf.Bytes())
 	if err != nil {
 		return fmt.Errorf("falha ao encriptar sstable: %v", err)
@@ -51,25 +57,29 @@ func FindInSSTable(searchKey []byte, filepath string) ([]byte, error) {
 
 	var found []byte
 	var ok bool
-	err = forEachPair(decryptedData, func(key, value []byte) bool {
+	var wasTombstone bool // Guarda se achamos uma lápide
+
+	err = forEachPair(decryptedData, func(key, value []byte, isTombstone bool) bool {
 		if bytes.Equal(key, searchKey) {
-			found, ok = value, true
-			return false // achou: para a varredura
+			found, ok, wasTombstone = value, true, isTombstone
+			return false // Achou a chave (mesmo que seja lápide), para a varredura
 		}
 		return true
 	})
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		// Varreu o arquivo todo e não achou
-		return nil, ErrKeyNotFound
+
+	if ok {
+		if wasTombstone {
+			return nil, errTombstone // Sinaliza Lápide no disco
+		}
+		return found, nil
 	}
-	return found, nil
+	return nil, ErrKeyNotFound
 }
 
-// ReadSSTableKeys devolve todas as chaves de um SSTable. É usado para remontar o
-// filtro de Bloom dos arquivos que já estavam no disco quando o banco iniciou.
+// Leia apenas a atualização do callback nesta função, o resto se mantém:
 func ReadSSTableKeys(filepath string) ([][]byte, error) {
 	decryptedData, err := readSSTable(filepath)
 	if err != nil {
@@ -77,7 +87,7 @@ func ReadSSTableKeys(filepath string) ([][]byte, error) {
 	}
 
 	var keys [][]byte
-	err = forEachPair(decryptedData, func(key, _ []byte) bool {
+	err = forEachPair(decryptedData, func(key, _ []byte, _ bool) bool {
 		keys = append(keys, key)
 		return true
 	})
@@ -100,37 +110,70 @@ func readSSTable(filepath string) ([]byte, error) {
 
 // forEachPair percorre o formato binário [tamChave][chave][tamValor][valor]...
 // chamando visit para cada par. Se visit devolver false, a varredura para ali.
-func forEachPair(data []byte, visit func(key, value []byte) bool) error {
+// forEachPair percorre o formato binário [Tombstone][tamChave][chave][tamValor][valor]...
+func forEachPair(data []byte, visit func(key, value []byte, isTombstone bool) bool) error {
 	buf := bytes.NewReader(data)
 
 	for buf.Len() > 0 {
-		// Lê o tamanho da chave (4 bytes)
+		// Lê a flag Tombstone (1 byte)
+		tombByte, err := buf.ReadByte()
+		if err != nil {
+			return err
+		}
+		isTombstone := tombByte == 1
+
 		var keyLen uint32
 		if err := binary.Read(buf, binary.LittleEndian, &keyLen); err != nil {
 			return err
 		}
 
-		// Extrai a chave. io.ReadFull exige ler tudo; buf.Read poderia ler menos sem dar erro.
 		key := make([]byte, keyLen)
 		if _, err := io.ReadFull(buf, key); err != nil {
 			return err
 		}
 
-		// Lê o tamanho do valor (4 bytes)
 		var valLen uint32
 		if err := binary.Read(buf, binary.LittleEndian, &valLen); err != nil {
 			return err
 		}
 
-		// Extrai o valor
 		value := make([]byte, valLen)
 		if _, err := io.ReadFull(buf, value); err != nil {
 			return err
 		}
 
-		if !visit(key, value) {
+		if !visit(key, value, isTombstone) {
 			return nil
 		}
 	}
 	return nil
+}
+
+// ReadAllFromSSTable carrega todos os pares de um arquivo. Usado pelo worker de compactação.
+func ReadAllFromSSTable(filepath string) ([]KVPair, error) {
+	decryptedData, err := readSSTable(filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	var pairs []KVPair
+	err = forEachPair(decryptedData, func(key, value []byte, isTombstone bool) bool {
+		// Fazemos cópias limpas dos slices para não prender o buffer grande na memória do GC
+		k := make([]byte, len(key))
+		copy(k, key)
+
+		var v []byte
+		if value != nil {
+			v = make([]byte, len(value))
+			copy(v, value)
+		}
+
+		pairs = append(pairs, KVPair{
+			Key:       k,
+			Value:     v,
+			Tombstone: isTombstone,
+		})
+		return true // Continua lendo até o final
+	})
+	return pairs, err
 }

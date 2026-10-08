@@ -22,7 +22,8 @@ type Node struct {
 	Right *Node
 	// Na implementação padrão, ter um ponteiro para o pai (Parent)
 	// facilita muito as rotações e o rebalanceamento.
-	Parent *Node
+	Parent    *Node
+	Tombstone bool
 }
 
 // RBTree é a nossa MemTable
@@ -45,11 +46,14 @@ func (t *RBTree) Get(key []byte) ([]byte, error) {
 	current := t.Root
 	for current != nil {
 		cmp := bytes.Compare(key, current.Key)
-		if cmp == 0 { // key == current.Key
+		if cmp == 0 {
+			if current.Tombstone {
+				return nil, errTombstone // Sinaliza ao Engine que esbarrou numa lápide
+			}
 			return current.Value, nil
-		} else if cmp < 0 { // key < current.Key
+		} else if cmp < 0 {
 			current = current.Left
-		} else { // key > current.Key
+		} else {
 			current = current.Right
 		}
 	}
@@ -59,26 +63,36 @@ func (t *RBTree) Get(key []byte) ([]byte, error) {
 
 // Put insere ou atualiza um valor na árvore.
 func (t *RBTree) Put(key []byte, value []byte) error {
+	return t.putInternal(key, value, false)
+}
+
+// PutTombstone insere uma chave marcada como deletada.
+func (t *RBTree) PutTombstone(key []byte) error {
+	return t.putInternal(key, nil, true)
+}
+
+// putInternal unifica a lógica de inserção para dados e lápides.
+func (t *RBTree) putInternal(key, value []byte, isTombstone bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	newNode := &Node{
-		Key:   key,
-		Value: value,
-		Color: Red, // Novos nós sempre nascem Vermelhos
+		Key:       key,
+		Value:     value,
+		Color:     Red,
+		Tombstone: isTombstone,
 	}
 
 	var parent *Node
 	current := t.Root
 
-	// 1. Inserção normal de Árvore de Busca Binária
 	for current != nil {
 		parent = current
 		cmp := bytes.Compare(newNode.Key, current.Key)
 
 		if cmp == 0 {
-			// A chave já existe, apenas atualizamos o valor
 			current.Value = value
+			current.Tombstone = isTombstone
 			return nil
 		} else if cmp < 0 {
 			current = current.Left
@@ -98,8 +112,6 @@ func (t *RBTree) Put(key []byte, value []byte) error {
 	}
 
 	t.Size++
-
-	// 2. Consertar as regras da Árvore Rubro-Negra
 	t.insertFixup(newNode)
 	return nil
 }
@@ -222,8 +234,9 @@ func (t *RBTree) inOrderTraversal(node *Node, result *[]KVPair) {
 	copy(valueCopy, node.Value)
 
 	*result = append(*result, KVPair{
-		Key:   keyCopy,
-		Value: valueCopy,
+		Key:       keyCopy,
+		Value:     valueCopy,
+		Tombstone: node.Tombstone,
 	})
 
 	// 3. Desce para a direita (maiores valores)
