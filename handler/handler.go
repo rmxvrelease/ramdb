@@ -61,8 +61,8 @@ func (h *CommandHandler) Handle(r server.Request) server.Response {
 		}
 
 		if h.aof != nil {
-			// Cast para string mantido temporariamente apenas para não quebrar a tipagem do canal do AOF
-			h.aof.Append(string(payload) + "\n")
+			// Antes era: h.aof.Append(string(payload) + "\n")
+			h.aof.Append(payload)
 		}
 		return ByteResponse{Data: []byte("OK")}
 
@@ -85,7 +85,8 @@ func (h *CommandHandler) Handle(r server.Request) server.Response {
 		h.db.Delete(chave)
 
 		if h.aof != nil {
-			h.aof.Append(string(payload) + "\n")
+			// Antes era: h.aof.Append(string(payload) + "\n")
+			h.aof.Append(payload)
 		}
 		return ByteResponse{Data: []byte("OK")}
 

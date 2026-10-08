@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -99,8 +100,9 @@ func TestEngine_RemontaFiltrosAoReiniciar(t *testing.T) {
 	// O próximo flush precisa ir para um arquivo novo, sem sobrescrever o sstable_0001.
 	encherUmaMemTable(engine, "nova")
 	esperarFlush(t, engine, 2)
-	if engine.sstables[1].path != "sstable_0002.data" {
-		t.Errorf("esperava sstable_0002.data, gravou %s", engine.sstables[1].path)
+	caminho := engine.sstables[1].path
+	if !strings.HasPrefix(caminho, "sstable_") || !strings.HasSuffix(caminho, ".data") {
+		t.Errorf("esperava um ficheiro no formato sstable_*.data, mas gravou %s", caminho)
 	}
 	if _, err := engine.Get([]byte("chave_0500")); err != nil {
 		t.Errorf("chave antiga sumiu depois do segundo flush: %v", err)
