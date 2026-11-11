@@ -9,24 +9,20 @@ import (
 func TestSSTable_WriteAndRead(t *testing.T) {
 	filename := "test_sstable_9999.data"
 
-	// Limpa o arquivo de teste antes e depois de rodar
 	os.Remove(filename)
 	defer os.Remove(filename)
 
-	// 1. Prepara dados falsos (simulando a saída do inOrderTraversal)
 	dados := []KVPair{
 		{Key: []byte("a_chave"), Value: []byte("valor_a")},
 		{Key: []byte("b_chave"), Value: []byte("valor_b")},
 		{Key: []byte("c_chave"), Value: []byte("valor_c")},
 	}
 
-	// 2. Escreve no disco (encriptado e empacotado em binário)
 	err := WriteSSTable(dados, filename)
 	if err != nil {
 		t.Fatalf("Falha ao escrever SSTable: %v", err)
 	}
 
-	// 3. Lê do disco buscando uma chave existente
 	val, err := FindInSSTable([]byte("b_chave"), filename)
 	if err != nil {
 		t.Fatalf("Erro ao buscar chave existente: %v", err)
@@ -36,13 +32,11 @@ func TestSSTable_WriteAndRead(t *testing.T) {
 		t.Errorf("Esperava 'valor_b', recebeu '%s'", string(val))
 	}
 
-	// 4. Busca uma chave inexistente (deve retornar ErrKeyNotFound)
 	_, err = FindInSSTable([]byte("z_chave_fantasma"), filename)
 	if err != ErrKeyNotFound {
 		t.Errorf("Esperava ErrKeyNotFound para chave inexistente, recebeu %v", err)
 	}
 
-	// 5. ReadSSTableKeys devolve todas as chaves, na ordem gravada
 	chaves, err := ReadSSTableKeys(filename)
 	if err != nil || len(chaves) != len(dados) {
 		t.Fatalf("Esperava %d chaves, recebeu %d (erro: %v)", len(dados), len(chaves), err)
@@ -88,7 +82,7 @@ func TestSSTable_EdgeCases_ComLogsIntensos(t *testing.T) {
 		},
 		{
 			nome: "Valor Gigante (Payload pesado)",
-			// Cria um valor com 1 milhão de bytes da letra 'A'
+
 			dados: []KVPair{{Key: []byte("chave_pesada"), Value: bytes.Repeat([]byte("A"), 1000000)}},
 		},
 		{
@@ -99,14 +93,13 @@ func TestSSTable_EdgeCases_ComLogsIntensos(t *testing.T) {
 
 	for _, tc := range cenarios {
 		t.Run(tc.nome, func(t *testing.T) {
-			t.Logf("Rodando cenário crítico: %s", tc.nome) // Log nativo do Go de testes
+			t.Logf("Rodando cenário crítico: %s", tc.nome)
 
 			err := WriteSSTable(tc.dados, filename)
 			if err != nil {
 				t.Fatalf("Falha na gravação do cenário '%s': %v", tc.nome, err)
 			}
 
-			// Tenta recuperar a chave imediatamente
 			for _, kv := range tc.dados {
 				recuperado, err := FindInSSTable(kv.Key, filename)
 				if err != nil {

@@ -14,7 +14,6 @@ func TestBloomFilter_NuncaDaFalsoNegativo(t *testing.T) {
 		filtro.Add([]byte(fmt.Sprintf("chave_%06d", i)))
 	}
 
-	// A regra de ouro: tudo que entrou tem que responder "talvez".
 	for i := 0; i < 10000; i++ {
 		if !filtro.MightContain([]byte(fmt.Sprintf("chave_%06d", i))) {
 			t.Fatalf("falso negativo em chave_%06d", i)
@@ -72,7 +71,6 @@ func TestEngine_BloomEvitaLerODisco(t *testing.T) {
 		t.Errorf("o filtro deveria barrar quase todas as leituras, mas o disco foi aberto %d vezes", leituras)
 	}
 
-	// Uma chave que está no disco continua sendo encontrada.
 	val, err := engine.Get([]byte("chave_0500"))
 	if err != nil || !bytes.Equal(val, []byte("valor_0500")) {
 		t.Errorf("Falha ao ler chave do disco: %v", err)
@@ -87,7 +85,6 @@ func TestEngine_RemontaFiltrosAoReiniciar(t *testing.T) {
 	encherUmaMemTable(primeiro, "chave")
 	esperarFlush(t, primeiro, 1)
 
-	// "Reinicia" o banco: um Engine novo só conhece o que está no disco.
 	engine := NewEngine()
 	if len(engine.sstables) != 1 || engine.sstables[0].filter == nil {
 		t.Fatalf("esperava 1 SSTable com filtro remontado, tem %d", len(engine.sstables))
@@ -97,7 +94,6 @@ func TestEngine_RemontaFiltrosAoReiniciar(t *testing.T) {
 		t.Errorf("Falha ao ler chave gravada antes de reiniciar: %v", err)
 	}
 
-	// O próximo flush precisa ir para um arquivo novo, sem sobrescrever o sstable_0001.
 	encherUmaMemTable(engine, "nova")
 	esperarFlush(t, engine, 2)
 	caminho := engine.sstables[1].path
@@ -109,8 +105,6 @@ func TestEngine_RemontaFiltrosAoReiniciar(t *testing.T) {
 	}
 }
 
-// Mede o caso que o filtro existe para resolver: GET de chave que não está em lugar nenhum.
-// Rode com: go test ./db -run '^$' -bench GetChaveInexistente -benchmem
 func BenchmarkEngine_GetChaveInexistente(b *testing.B) {
 	limparSSTables()
 	defer limparSSTables()
@@ -129,15 +123,12 @@ func BenchmarkEngine_GetChaveInexistente(b *testing.B) {
 	}
 }
 
-// encherUmaMemTable insere MemTableLimit+1 chaves: a última dispara o congelamento
-// das MemTableLimit anteriores, que vão para o disco num SSTable só.
 func encherUmaMemTable(engine *Engine, prefixo string) {
 	for i := 0; i <= MemTableLimit; i++ {
 		engine.Put([]byte(fmt.Sprintf("%s_%04d", prefixo, i)), []byte(fmt.Sprintf("valor_%04d", i)))
 	}
 }
 
-// esperarFlush espera o worker publicar n SSTables, em vez de um Sleep com tempo chutado.
 func esperarFlush(tb testing.TB, engine *Engine, n int) {
 	tb.Helper()
 	prazo := time.Now().Add(10 * time.Second)

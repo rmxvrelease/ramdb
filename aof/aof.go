@@ -9,7 +9,7 @@ import (
 
 type AOF struct {
 	file *os.File
-	ch   chan []byte // Adeus strings! Tráfego nativo de bytes
+	ch   chan []byte
 	wg   sync.WaitGroup
 }
 
@@ -21,7 +21,7 @@ func NewAOF(path string) (*AOF, error) {
 
 	aof := &AOF{
 		file: f,
-		ch:   make(chan []byte, 1024), // Buffer de 1024 slices de bytes
+		ch:   make(chan []byte, 1024),
 	}
 
 	aof.wg.Add(1)
@@ -44,7 +44,7 @@ func (a *AOF) worker() {
 				a.file.Sync()
 				return
 			}
-			// Gravamos os bytes diretamente no arquivo
+
 			_, err := a.file.Write(cmd)
 			if err != nil {
 				log.Println("Erro ao gravar no AOF:", err)
@@ -55,11 +55,8 @@ func (a *AOF) worker() {
 	}
 }
 
-// Append agora recebe bytes diretamente
 func (a *AOF) Append(cmd []byte) {
-	// Fazemos uma cópia rápida e segura adicionando o '\n'.
-	// Isso impede que, se o servidor TCP reutilizar o buffer de leitura subjacente,
-	// nós gravemos "lixo" acidentalmente no disco.
+
 	buf := make([]byte, len(cmd)+1)
 	copy(buf, cmd)
 	buf[len(cmd)] = '\n'

@@ -8,10 +8,8 @@ import (
 	"io"
 )
 
-// Chave hardcoded temporária (EXATAMENTE 32 bytes)
 var devEncryptionKey = []byte("ramdb-super-secret-key-32-bytes!")
 
-// Encrypt sela o payload usando AES-GCM-256. Recebe apenas o dado!
 func Encrypt(payload []byte) ([]byte, error) {
 	block, err := aes.NewCipher(devEncryptionKey)
 	if err != nil {

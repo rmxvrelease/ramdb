@@ -8,26 +8,23 @@ import (
 	"os"
 )
 
-// WriteSSTable recebe os dados em ordem, serializa em binário e salva encriptado.
 func WriteSSTable(data []KVPair, filepath string) error {
 	var buf bytes.Buffer
 
 	for _, kv := range data {
-		// 1. Grava 1 byte indicando se é Tombstone (1) ou Não (0)
+
 		var tombByte byte = 0
 		if kv.Tombstone {
 			tombByte = 1
 		}
 		buf.WriteByte(tombByte)
 
-		// 2. Grava tamanho e bytes da chave
 		err := binary.Write(&buf, binary.LittleEndian, uint32(len(kv.Key)))
 		if err != nil {
 			return err
 		}
 		buf.Write(kv.Key)
 
-		// 3. Grava tamanho e bytes do valor
 		err = binary.Write(&buf, binary.LittleEndian, uint32(len(kv.Value)))
 		if err != nil {
 			return err
@@ -48,7 +45,6 @@ func WriteSSTable(data []KVPair, filepath string) error {
 	return nil
 }
 
-// FindInSSTable abre o arquivo, decripta a carga AES-256 e busca a chave sequencialmente.
 func FindInSSTable(searchKey []byte, filepath string) ([]byte, error) {
 	decryptedData, err := readSSTable(filepath)
 	if err != nil {
@@ -57,12 +53,12 @@ func FindInSSTable(searchKey []byte, filepath string) ([]byte, error) {
 
 	var found []byte
 	var ok bool
-	var wasTombstone bool // Guarda se achamos uma lápide
+	var wasTombstone bool
 
 	err = forEachPair(decryptedData, func(key, value []byte, isTombstone bool) bool {
 		if bytes.Equal(key, searchKey) {
 			found, ok, wasTombstone = value, true, isTombstone
-			return false // Achou a chave (mesmo que seja lápide), para a varredura
+			return false
 		}
 		return true
 	})
@@ -72,14 +68,13 @@ func FindInSSTable(searchKey []byte, filepath string) ([]byte, error) {
 
 	if ok {
 		if wasTombstone {
-			return nil, errTombstone // Sinaliza Lápide no disco
+			return nil, errTombstone
 		}
 		return found, nil
 	}
 	return nil, ErrKeyNotFound
 }
 
-// Leia apenas a atualização do callback nesta função, o resto se mantém:
 func ReadSSTableKeys(filepath string) ([][]byte, error) {
 	decryptedData, err := readSSTable(filepath)
 	if err != nil {
@@ -94,7 +89,6 @@ func ReadSSTableKeys(filepath string) ([][]byte, error) {
 	return keys, err
 }
 
-// readSSTable lê os bytes criptografados do disco e decripta tudo para a memória.
 func readSSTable(filepath string) ([]byte, error) {
 	encryptedData, err := os.ReadFile(filepath)
 	if err != nil {
@@ -115,7 +109,7 @@ func forEachPair(data []byte, visit func(key, value []byte, isTombstone bool) bo
 	buf := bytes.NewReader(data)
 
 	for buf.Len() > 0 {
-		// Lê a flag Tombstone (1 byte)
+
 		tombByte, err := buf.ReadByte()
 		if err != nil {
 			return err
@@ -149,7 +143,6 @@ func forEachPair(data []byte, visit func(key, value []byte, isTombstone bool) bo
 	return nil
 }
 
-// ReadAllFromSSTable carrega todos os pares de um arquivo. Usado pelo worker de compactação.
 func ReadAllFromSSTable(filepath string) ([]KVPair, error) {
 	decryptedData, err := readSSTable(filepath)
 	if err != nil {
@@ -158,7 +151,7 @@ func ReadAllFromSSTable(filepath string) ([]KVPair, error) {
 
 	var pairs []KVPair
 	err = forEachPair(decryptedData, func(key, value []byte, isTombstone bool) bool {
-		// Fazemos cópias limpas dos slices para não prender o buffer grande na memória do GC
+
 		k := make([]byte, len(key))
 		copy(k, key)
 
@@ -173,7 +166,7 @@ func ReadAllFromSSTable(filepath string) ([]KVPair, error) {
 			Value:     v,
 			Tombstone: isTombstone,
 		})
-		return true // Continua lendo até o final
+		return true
 	})
 	return pairs, err
 }

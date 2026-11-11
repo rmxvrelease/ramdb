@@ -5,7 +5,6 @@ import (
 	"sync"
 )
 
-// Definindo as cores usando constantes tipadas para consumir o mínimo de memória
 type Color bool
 
 const (
@@ -13,32 +12,26 @@ const (
 	Black Color = false
 )
 
-// Node representa um elemento da Árvore Rubro-Negra
 type Node struct {
-	Key   []byte
-	Value []byte
-	Color Color
-	Left  *Node
-	Right *Node
-	// Na implementação padrão, ter um ponteiro para o pai (Parent)
-	// facilita muito as rotações e o rebalanceamento.
+	Key       []byte
+	Value     []byte
+	Color     Color
+	Left      *Node
+	Right     *Node
 	Parent    *Node
 	Tombstone bool
 }
 
-// RBTree é a nossa MemTable
 type RBTree struct {
 	Root *Node
-	mu   sync.RWMutex // Protege contra race conditions, igual vocês fizeram no map
-	Size int          // Controla o tamanho (quantidade de chaves)
+	mu   sync.RWMutex
+	Size int
 }
 
-// NewRBTree inicializa uma árvore vazia
 func NewRBTree() *RBTree {
 	return &RBTree{}
 }
 
-// Get busca um valor na árvore em O(log n)
 func (t *RBTree) Get(key []byte) ([]byte, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -48,7 +41,7 @@ func (t *RBTree) Get(key []byte) ([]byte, error) {
 		cmp := bytes.Compare(key, current.Key)
 		if cmp == 0 {
 			if current.Tombstone {
-				return nil, errTombstone // Sinaliza ao Engine que esbarrou numa lápide
+				return nil, errTombstone
 			}
 			return current.Value, nil
 		} else if cmp < 0 {
@@ -61,17 +54,14 @@ func (t *RBTree) Get(key []byte) ([]byte, error) {
 	return nil, ErrKeyNotFound
 }
 
-// Put insere ou atualiza um valor na árvore.
 func (t *RBTree) Put(key []byte, value []byte) error {
 	return t.putInternal(key, value, false)
 }
 
-// PutTombstone insere uma chave marcada como deletada.
 func (t *RBTree) PutTombstone(key []byte) error {
 	return t.putInternal(key, nil, true)
 }
 
-// putInternal unifica a lógica de inserção para dados e lápides.
 func (t *RBTree) putInternal(key, value []byte, isTombstone bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -116,7 +106,6 @@ func (t *RBTree) putInternal(key, value []byte, isTombstone bool) error {
 	return nil
 }
 
-// insertFixup garante que as propriedades rubro-negras não sejam violadas
 func (t *RBTree) insertFixup(z *Node) {
 	for z.Parent != nil && z.Parent.Color == Red {
 		// Se o pai de Z for o filho esquerdo do avô
@@ -158,10 +147,9 @@ func (t *RBTree) insertFixup(z *Node) {
 			}
 		}
 	}
-	t.Root.Color = Black // A raiz sempre termina Preta
+	t.Root.Color = Black
 }
 
-// leftRotate gira os ponteiros para a esquerda
 func (t *RBTree) leftRotate(x *Node) {
 	y := x.Right
 	x.Right = y.Left
@@ -180,7 +168,6 @@ func (t *RBTree) leftRotate(x *Node) {
 	x.Parent = y
 }
 
-// rightRotate gira os ponteiros para a direita
 func (t *RBTree) rightRotate(x *Node) {
 	y := x.Left
 	x.Left = y.Right
@@ -199,34 +186,24 @@ func (t *RBTree) rightRotate(x *Node) {
 	x.Parent = y
 }
 
-// GetAllInOrder varre a árvore inteira e retorna todos os dados ordenados lexicograficamente.
-// Este método é utilizado para gerar o payload que será gravado no disco (SSTable).
 func (t *RBTree) GetAllInOrder() []KVPair {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	// Pré-aloca o slice com o tamanho exato da árvore.
-	// Isso evita realocações dinâmicas custosas sob o capô do Go.
 	result := make([]KVPair, 0, t.Size)
 
-	// Inicia a travessia a partir da raiz
 	t.inOrderTraversal(t.Root, &result)
 
 	return result
 }
 
-// inOrderTraversal é a função recursiva que caminha pela árvore: Esquerda -> Nó -> Direita.
 func (t *RBTree) inOrderTraversal(node *Node, result *[]KVPair) {
 	if node == nil {
 		return
 	}
 
-	// 1. Desce tudo para a esquerda (menores valores)
 	t.inOrderTraversal(node.Left, result)
 
-	// 2. Processa o nó atual
-	// Criamos cópias dos bytes para garantir que o worker de disco não
-	// interfira acidentalmente na memória da árvore ativa
 	keyCopy := make([]byte, len(node.Key))
 	copy(keyCopy, node.Key)
 
@@ -239,6 +216,5 @@ func (t *RBTree) inOrderTraversal(node *Node, result *[]KVPair) {
 		Tombstone: node.Tombstone,
 	})
 
-	// 3. Desce para a direita (maiores valores)
 	t.inOrderTraversal(node.Right, result)
 }

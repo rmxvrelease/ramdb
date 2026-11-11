@@ -9,7 +9,6 @@ import (
 	"ramdb/server"
 )
 
-// ByteResponse substitui a StringResponse, operando nativamente com bytes.
 type ByteResponse struct {
 	Data  []byte
 	Error error
@@ -35,7 +34,6 @@ func New(db *db.Engine, a *aof.AOF) *CommandHandler {
 	}
 }
 
-// Handle atende as requisições TCP operando diretamente na memória com bytes.
 func (h *CommandHandler) Handle(r server.Request) server.Response {
 	payload := bytes.TrimSpace(r.RequestBody)
 	args := bytes.Split(payload, []byte(" "))
@@ -46,22 +44,20 @@ func (h *CommandHandler) Handle(r server.Request) server.Response {
 
 	comando := bytes.ToUpper(args[0])
 
-	// Switch em Go não suporta []byte nativamente, mas converter apenas os ~3 bytes do comando é inofensivo
 	switch string(comando) {
 	case "SET":
 		if len(args) < 3 {
 			return ByteResponse{Error: fmt.Errorf("uso correto: SET <chave> <valor>")}
 		}
 		chave := args[1]
-		valor := bytes.Join(args[2:], []byte(" ")) // Junta o resto dos bytes com espaços
-
+		valor := bytes.Join(args[2:], []byte(" "))
 		err := h.db.Put(chave, valor)
 		if err != nil {
 			return ByteResponse{Error: err}
 		}
 
 		if h.aof != nil {
-			// Antes era: h.aof.Append(string(payload) + "\n")
+
 			h.aof.Append(payload)
 		}
 		return ByteResponse{Data: []byte("OK")}
@@ -85,7 +81,7 @@ func (h *CommandHandler) Handle(r server.Request) server.Response {
 		h.db.Delete(chave)
 
 		if h.aof != nil {
-			// Antes era: h.aof.Append(string(payload) + "\n")
+
 			h.aof.Append(payload)
 		}
 		return ByteResponse{Data: []byte("OK")}

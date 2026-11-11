@@ -104,13 +104,12 @@ func newFilterFromKeys(keys [][]byte) *BloomFilter {
 	return filter
 }
 
-// flushWorker salva as árvores congeladas no disco
 func (e *Engine) flushWorker() {
 	for treeToFlush := range e.flushCh {
 		fmt.Printf("[Worker de Disco] Iniciando flush de %d chaves...\n", treeToFlush.Size)
 
 		orderedData := treeToFlush.GetAllInOrder()
-		filename := fmt.Sprintf("sstable_%d.data", time.Now().UnixNano()) // Nomenclatura temporal
+		filename := fmt.Sprintf("sstable_%d.data", time.Now().UnixNano())
 
 		filter := NewBloomFilter(len(orderedData), BloomFalsePositiveRate)
 		for _, kv := range orderedData {
@@ -134,28 +133,24 @@ func (e *Engine) flushWorker() {
 }
 
 func (e *Engine) compactionWorker() {
-	// Acorda a cada 15 segundos em background para ver se precisa limpar a casa
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		e.mu.RLock()
-		// Se tivermos menos que 3 arquivos, não vale a pena gastar CPU
+
 		if len(e.sstables) < 3 {
 			e.mu.RUnlock()
 			continue
 		}
 
-		// Tira um "Snapshot" de quais arquivos vamos compactar.
-		// Vamos pegar TODOS os arquivos existentes neste exato milissegundo.
 		tablesToCompact := make([]ssTable, len(e.sstables))
 		copy(tablesToCompact, e.sstables)
 		e.mu.RUnlock()
 
 		fmt.Printf("[Worker de Compactação] Iniciando fusão de %d arquivos antigos...\n", len(tablesToCompact))
 
-		// 1. Resolver conflitos: Como tablesToCompact está ordenado do mais antigo pro mais novo,
-		// ao jogarmos no mapa, as chaves mais recentes sobrescrevem automaticamente as velhas!
 		compactedMap := make(map[string]KVPair)
 		for _, table := range tablesToCompact {
 			pairs, err := ReadAllFromSSTable(table.path)
@@ -167,21 +162,17 @@ func (e *Engine) compactionWorker() {
 			}
 		}
 
-		// 2. O GRANDE FILTRO: Descartar as Lápides!
 		var finalPairs []KVPair
 		for _, kv := range compactedMap {
 			if !kv.Tombstone {
-				// Se for lápide, ela morre aqui e o HD agradece.
+
 				finalPairs = append(finalPairs, kv)
 			}
 		}
-
-		// 3. Ordenar lexicograficamente para permitir Busca Binária futura
 		sort.Slice(finalPairs, func(i, j int) bool {
 			return bytes.Compare(finalPairs[i].Key, finalPairs[j].Key) < 0
 		})
 
-		// 4. Salvar o arquivão compactado e limpo
 		compactedFilename := fmt.Sprintf("sstable_%d.data", time.Now().UnixNano())
 		err := WriteSSTable(finalPairs, compactedFilename)
 		if err != nil {
@@ -195,17 +186,14 @@ func (e *Engine) compactionWorker() {
 		}
 		newTable := ssTable{path: compactedFilename, filter: newFilter}
 
-		// 5. Atualizar o Catálogo Seguro no Engine
 		e.mu.Lock()
-		// Atenção matemática absurda: enquanto compactávamos, o cliente pode ter gerado
-		// NOVOS arquivos. Nós preservamos os novos, mas substituímos os velhos pelo arquivão.
+
 		var updatedSSTables []ssTable
 		updatedSSTables = append(updatedSSTables, newTable)
 		updatedSSTables = append(updatedSSTables, e.sstables[len(tablesToCompact):]...)
 		e.sstables = updatedSSTables
 		e.mu.Unlock()
 
-		// 6. Faxina física no Sistema Operacional
 		for _, table := range tablesToCompact {
 			os.Remove(table.path)
 		}
@@ -214,7 +202,6 @@ func (e *Engine) compactionWorker() {
 	}
 }
 
-// Put roteia a escrita e verifica limites
 func (e *Engine) Put(key []byte, value []byte) error {
 	e.mu.Lock()
 
@@ -237,7 +224,6 @@ func (e *Engine) Put(key []byte, value []byte) error {
 	return currentActive.Put(key, value)
 }
 
-// Get lê primeiro da ativa, depois da imutável
 func (e *Engine) Get(key []byte) ([]byte, error) {
 	e.mu.RLock()
 	active := e.activeTree
@@ -245,16 +231,14 @@ func (e *Engine) Get(key []byte) ([]byte, error) {
 	tables := e.sstables
 	e.mu.RUnlock()
 
-	// 1. Busca na MemTable Ativa
 	val, err := active.Get(key)
 	if err == nil {
 		return val, nil
 	}
 	if err == errTombstone {
-		return nil, ErrKeyNotFound // Lápide encontrada: aborta a busca e esconde do usuário
+		return nil, ErrKeyNotFound
 	}
 
-	// 2. Busca na Imutável
 	if immutable != nil {
 		val, err = immutable.Get(key)
 		if err == nil {
@@ -265,7 +249,6 @@ func (e *Engine) Get(key []byte) ([]byte, error) {
 		}
 	}
 
-	// 3. Busca no Disco (Do mais novo para o mais antigo)
 	for i := len(tables) - 1; i >= 0; i-- {
 		table := tables[i]
 
@@ -279,7 +262,7 @@ func (e *Engine) Get(key []byte) ([]byte, error) {
 			return val, nil
 		}
 		if err == errTombstone {
-			return nil, ErrKeyNotFound // Lápide no disco: aborta a busca
+			return nil, ErrKeyNotFound
 		}
 	}
 
@@ -289,7 +272,6 @@ func (e *Engine) Get(key []byte) ([]byte, error) {
 func (e *Engine) Delete(key []byte) error {
 	e.mu.Lock()
 
-	// Mesma lógica de limite do Put: se a RAM lotou, congela e joga pro worker
 	if e.activeTree.Size >= MemTableLimit {
 		if e.immutableTree != nil {
 			e.mu.Unlock()
@@ -306,6 +288,5 @@ func (e *Engine) Delete(key []byte) error {
 	currentActive := e.activeTree
 	e.mu.Unlock()
 
-	// Insere a chave disfarçada de Lápide
 	return currentActive.PutTombstone(key)
 }
