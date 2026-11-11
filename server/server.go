@@ -93,7 +93,7 @@ func parseRequest(reader *bfreader.BufferedReader[byte], max_msg_length int) (Re
 
 func (serv *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
-	reader := bufferedreader.New[byte](conn, 1024)
+	reader := bufferedreader.New(conn, 1024)
 	for {
 		conn.SetReadDeadline(time.Now().Add(time.Second * 3))
 		decoded_request, err := parseRequest(&reader, serv.MessageMaxSize)
@@ -114,7 +114,7 @@ func (serv *Server) handleConnection(conn net.Conn) {
 
 func (serv *Server) initializeConnectionPool() chan net.Conn {
 	connection_channel := make(chan net.Conn)
-	for _ = range serv.MaxConnections {
+	for range serv.MaxConnections {
 		go func() {
 			for {
 				serv.handleConnection(<-connection_channel)

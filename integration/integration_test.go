@@ -3,8 +3,8 @@ package integration_test
 import (
 	"fmt"
 	"log"
-	"net"
 	"ramdb/aof"
+	"ramdb/client"
 	"ramdb/db"
 	"ramdb/handler"
 	"ramdb/server"
@@ -21,7 +21,7 @@ func runServer(handler *handler.CommandHandler) {
 			return handler.Handle(r)
 		},
 	}
-	
+
 	// Se o servidor falhar ao subir, o log nos avisa na hora em vez de morrer em silêncio
 	if err := serv.StartServing(); err != nil {
 		log.Printf("[FALHA FATAL] Erro ao iniciar o servidor TCP: %v\n", err)
@@ -34,43 +34,37 @@ func TestMessageExchange(t *testing.T) {
 		log.Fatal("Erro ao iniciar AOF:", err)
 	}
 	defer persistencia.Close()
-	
+
 	database := db.NewEngine()
 	cmdHandler := handler.New(database, persistencia)
 
 	go runServer(cmdHandler)
 
-	comandosSimulados := []string{
-		"SET linguagem go",
-		"GET linguagem",
-		"DEL linguagem",
-		"GET linguagem", //deve retornar erro
+	c := client.New(":8081")
+
+	comandosSimulados := []func() ([]byte, error){
+		func() ([]byte, error) {
+			return []byte{}, c.Put("linguagem", []byte("go"))
+		},
+		func() ([]byte, error) {
+			return c.Get("linguagem")
+		},
+		func() ([]byte, error) {
+			return []byte{}, c.Del("linguagem")
+		},
+		func() ([]byte, error) {
+			return c.Get("linguagem")
+		},
 	}
-	
+
 	time.Sleep(time.Second * 2)
 
-	for _, payload := range comandosSimulados {
-		// Protocolo: 4 SOH (1,1,1,1) + msg_length + request_id
-		request := []byte{1, 1, 1, 1, byte(len(payload)), 0, 0, 0, 0, 1, 0, 0}
-		request = append(request, []byte(payload)...)
-
-		// Lembra de trocar a porta no cliente também!
-		conn, err := net.Dial("tcp", ":8081")
+	for _, request := range comandosSimulados {
+		result, err := request()
 		if err != nil {
-			log.Fatalf("Falha ao discar: %s", err.Error())
+			fmt.Printf("Erro: %s", err.Error())
 		}
 
-		_, err = conn.Write(request)
-		if err != nil {
-			log.Fatalf("Falha ao escrever: %s", err.Error())
-		}
-
-		buffer := make([]byte, 1024)
-		n, err := conn.Read(buffer)
-		if err != nil {
-			log.Printf("\nErro de leitura: %s", err.Error())
-		}
-		
-		fmt.Printf("Comando: %s | Resposta: %s\n", payload, buffer[:n])
+		fmt.Printf("Resposta: %s\n", result)
 	}
 }

@@ -26,13 +26,8 @@ func main() {
 	cmdHandler := handler.New(db, persistencia)
 
 	serv := server.Server{
-		ListenAddress: ":8000",
-		RequestHandleCallback: func(r server.Request) server.Response {
-
-			return cmdHandler.Handle(r)
-
-			//return CustomResponse{}
-		},
+		ListenAddress:         ":8000",
+		RequestHandleCallback: cmdHandler.Handle,
 	}
 	serv.StartServing()
 }
