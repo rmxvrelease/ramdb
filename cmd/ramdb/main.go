@@ -2,6 +2,7 @@ package main
 
 import (
 	//"fmt"
+	"flag"
 	"log"
 	"os"
 	"ramdb/aof"
@@ -17,7 +18,7 @@ func (CustomResponse) Fail() error {
 	return nil
 }
 
-func run_server() {
+func run_server(addr string, benchmark_output string) {
 	persistencia, err := aof.NewAOF("database.aof")
 	if err != nil {
 		log.Fatal("Erro ao iniciar AOF:", err)
@@ -27,14 +28,16 @@ func run_server() {
 	db := db.NewInMemEngine()
 	cmdHandler := handler.New(db, persistencia)
 
-	bench, err := benchmarks.NewBenchmarkService()
+	bench, err := benchmarks.NewBenchmarkService(benchmark_output)
 	if err != nil {
 		log.Fatalf("Erro na criação de NewBenchmarkService: %v", err)
 	}
 	go bench.Run()
 
 	serv := server.Server{
-		ListenAddress:         ":8000",
+		ListenAddress:         addr,
+		MaxConnections:        100,
+		MessageMaxSize:        4096,
 		RequestHandleCallback: cmdHandler.Handle,
 		BenchmarkClient:       bench.GetBenchmarkClient(),
 	}
@@ -46,7 +49,10 @@ func run_server() {
 }
 
 func main() {
-	run_server()
+	addr := flag.String("addr", ":8000", "endereço em que o servidor escuta")
+	benchmark_output := flag.String("benchmark-output", "benchmark.log", "arquivo onde as métricas de benchmark são escritas")
+	flag.Parse()
+	run_server(*addr, *benchmark_output)
 }
 
 /*

@@ -73,8 +73,8 @@ type BenchmarkService struct {
 	output_file   *os.File
 }
 
-func NewBenchmarkService() (BenchmarkService, error) {
-	file, err := os.OpenFile("benchmark.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+func NewBenchmarkService(output_path string) (BenchmarkService, error) {
+	file, err := os.OpenFile(output_path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	return BenchmarkService{
 		reqReportChan: make(chan commandReport, 100),
 		dropped:       &atomic.Int64{},

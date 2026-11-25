@@ -39,7 +39,7 @@ func TestMessageExchange(t *testing.T) {
 
 	database := db.NewInMemEngine()
 	cmdHandler := handler.New(database, persistencia)
-	bench, err := benchmarks.NewBenchmarkService()
+	bench, err := benchmarks.NewBenchmarkService("benchmark.log")
 	if err != nil {
 		log.Fatalf("Erro na criação de NewBenchmarkService: %v", err)
 	}
