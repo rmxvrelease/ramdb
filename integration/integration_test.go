@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"ramdb/aof"
+	"ramdb/benchmarks"
 	"ramdb/client"
 	"ramdb/db"
 	"ramdb/handler"
@@ -12,11 +13,12 @@ import (
 	"time"
 )
 
-func runServer(handler *handler.CommandHandler) {
+func runServer(handler *handler.CommandHandler, bench *benchmarks.BenchmarkClient) {
 	serv := server.Server{
-		ListenAddress:  ":8081", // Trocamos para 8081 para fugir da porta travada
-		MaxConnections: 100,     // ESSENCIAL: Cria a pool de workers
-		MessageMaxSize: 4096,    // ESSENCIAL: Permite que o parser aceite payloads reais
+		ListenAddress:   ":8081", // Trocamos para 8081 para fugir da porta travada
+		MaxConnections:  100,     // ESSENCIAL: Cria a pool de workers
+		MessageMaxSize:  4096,    // ESSENCIAL: Permite que o parser aceite payloads reais
+		BenchmarkClient: bench,
 		RequestHandleCallback: func(r server.Request) server.Response {
 			return handler.Handle(r)
 		},
@@ -37,8 +39,13 @@ func TestMessageExchange(t *testing.T) {
 
 	database := db.NewInMemEngine()
 	cmdHandler := handler.New(database, persistencia)
+	bench, err := benchmarks.NewBenchmarkService()
+	if err != nil {
+		log.Fatalf("Erro na criação de NewBenchmarkService: %v", err)
+	}
 
-	go runServer(cmdHandler)
+	go runServer(cmdHandler, bench.GetBenchmarkClient())
+	go bench.Run()
 
 	c := client.New(":8081")
 
@@ -64,7 +71,8 @@ func TestMessageExchange(t *testing.T) {
 		if err != nil {
 			fmt.Printf("Erro: %s", err.Error())
 		}
-
 		fmt.Printf("Resposta: %s\n", result)
+		time.Sleep(time.Second)
 	}
+
 }

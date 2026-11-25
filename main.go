@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"ramdb/aof"
+	"ramdb/benchmarks"
 	"ramdb/db"
 	"ramdb/handler"
 	"ramdb/server"
@@ -16,7 +17,7 @@ func (CustomResponse) Fail() error {
 	return nil
 }
 
-func main() {
+func run_server() {
 	persistencia, err := aof.NewAOF("database.aof")
 	if err != nil {
 		log.Fatal("Erro ao iniciar AOF:", err)
@@ -26,15 +27,26 @@ func main() {
 	db := db.NewInMemEngine()
 	cmdHandler := handler.New(db, persistencia)
 
+	bench, err := benchmarks.NewBenchmarkService()
+	if err != nil {
+		log.Fatalf("Erro na criação de NewBenchmarkService: %v", err)
+	}
+	go bench.Run()
+
 	serv := server.Server{
 		ListenAddress:         ":8000",
 		RequestHandleCallback: cmdHandler.Handle,
+		BenchmarkClient:       bench.GetBenchmarkClient(),
 	}
 	err = serv.StartServing()
 	if err != nil {
 		log.Printf("Erro não tratado no servidor: %v", err)
 		os.Exit(1)
 	}
+}
+
+func main() {
+	run_server()
 }
 
 /*

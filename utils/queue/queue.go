@@ -62,6 +62,16 @@ func (q *Queue[T]) Peek() (T, bool) {
 	return q.buf[q.head], true
 }
 
+// PeekBack returns the back (most recently enqueued) element without removing
+// it. The bool is false if the queue is empty.
+func (q *Queue[T]) PeekBack() (T, bool) {
+	var zero T
+	if q.count == 0 {
+		return zero, false
+	}
+	return q.buf[(q.head+q.count-1)%len(q.buf)], true
+}
+
 // Clear removes all elements, releasing references so they can be collected.
 func (q *Queue[T]) Clear() {
 	var zero T

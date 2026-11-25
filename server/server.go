@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"ramdb/benchmarks"
 	"ramdb/constants"
 	bfreader "ramdb/utils/buffered_reader"
 	bufferedreader "ramdb/utils/buffered_reader"
@@ -19,6 +20,7 @@ type Server struct {
 	MaxConnections        int
 	MessageMaxSize        int
 	RequestHandleCallback func(Request) Response
+	BenchmarkClient       *benchmarks.BenchmarkClient
 }
 
 type Request struct {
@@ -97,6 +99,7 @@ func (serv *Server) handleConnection(conn net.Conn) {
 	for {
 		conn.SetReadDeadline(time.Now().Add(time.Second * 3))
 		decoded_request, err := parseRequest(&reader, serv.MessageMaxSize)
+		recv_time := time.Now()
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 				break
@@ -106,9 +109,12 @@ func (serv *Server) handleConnection(conn net.Conn) {
 		}
 		response := encodeResponse(serv.RequestHandleCallback(decoded_request))
 		n, err := conn.Write(response)
+		resp_time := time.Now()
 		if err != nil || n != len(response) {
 			log.Printf("Error in sending response: %v.", err)
+			continue
 		}
+		serv.BenchmarkClient.ReportRequest(decoded_request.RequestBody, recv_time, resp_time)
 	}
 }
 
