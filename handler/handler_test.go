@@ -8,7 +8,7 @@ import (
 
 func TestCommandHandler(t *testing.T) {
 
-	database := db.NewEngine()
+	database := db.NewInMemEngine()
 	cmdHandler := New(database, nil)
 
 	cenarios := []struct {

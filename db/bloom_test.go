@@ -10,12 +10,12 @@ import (
 
 func TestBloomFilter_NuncaDaFalsoNegativo(t *testing.T) {
 	filtro := NewBloomFilter(10000, BloomFalsePositiveRate)
-	for i := 0; i < 10000; i++ {
-		filtro.Add([]byte(fmt.Sprintf("chave_%06d", i)))
+	for i := range 10000 {
+		filtro.Add(fmt.Appendf(nil, "chave_%06d", i))
 	}
 
-	for i := 0; i < 10000; i++ {
-		if !filtro.MightContain([]byte(fmt.Sprintf("chave_%06d", i))) {
+	for i := range 10000 {
+		if !filtro.MightContain(fmt.Appendf(nil, "chave_%06d", i)) {
 			t.Fatalf("falso negativo em chave_%06d", i)
 		}
 	}
@@ -25,13 +25,13 @@ func TestBloomFilter_TaxaDeFalsoPositivo(t *testing.T) {
 	const chaves, consultas = MemTableLimit, 100000
 
 	filtro := NewBloomFilter(chaves, BloomFalsePositiveRate)
-	for i := 0; i < chaves; i++ {
-		filtro.Add([]byte(fmt.Sprintf("chave_%06d", i)))
+	for i := range chaves {
+		filtro.Add(fmt.Appendf(nil, "chave_%06d", i))
 	}
 
 	falsosPositivos := 0
-	for i := 0; i < consultas; i++ {
-		if filtro.MightContain([]byte(fmt.Sprintf("ausente_%06d", i))) {
+	for i := range consultas {
+		if filtro.MightContain(fmt.Appendf(nil, "ausente_%06d", i)) {
 			falsosPositivos++
 		}
 	}
@@ -55,12 +55,12 @@ func TestEngine_BloomEvitaLerODisco(t *testing.T) {
 	limparSSTables()
 	defer limparSSTables()
 
-	engine := NewEngine()
+	engine := NewInMemEngine()
 	encherUmaMemTable(engine, "chave")
 	esperarFlush(t, engine, 1)
 
-	for i := 0; i < 1000; i++ {
-		_, err := engine.Get([]byte(fmt.Sprintf("fantasma_%04d", i)))
+	for i := range 1000 {
+		_, err := engine.Get(fmt.Appendf(nil, "fantasma_%04d", i))
 		if err != ErrKeyNotFound {
 			t.Fatalf("Esperava ErrKeyNotFound, recebeu: %v", err)
 		}
@@ -81,11 +81,11 @@ func TestEngine_RemontaFiltrosAoReiniciar(t *testing.T) {
 	limparSSTables()
 	defer limparSSTables()
 
-	primeiro := NewEngine()
+	primeiro := NewInMemEngine()
 	encherUmaMemTable(primeiro, "chave")
 	esperarFlush(t, primeiro, 1)
 
-	engine := NewEngine()
+	engine := NewInMemEngine()
 	if len(engine.sstables) != 1 || engine.sstables[0].filter == nil {
 		t.Fatalf("esperava 1 SSTable com filtro remontado, tem %d", len(engine.sstables))
 	}
@@ -109,8 +109,8 @@ func BenchmarkEngine_GetChaveInexistente(b *testing.B) {
 	limparSSTables()
 	defer limparSSTables()
 
-	engine := NewEngine()
-	for arquivo := 0; arquivo < 4; arquivo++ {
+	engine := NewInMemEngine()
+	for arquivo := range 4 {
 		encherUmaMemTable(engine, fmt.Sprintf("arq%d", arquivo))
 		esperarFlush(b, engine, arquivo+1)
 	}
@@ -123,13 +123,13 @@ func BenchmarkEngine_GetChaveInexistente(b *testing.B) {
 	}
 }
 
-func encherUmaMemTable(engine *Engine, prefixo string) {
+func encherUmaMemTable(engine *InMemEngine, prefixo string) {
 	for i := 0; i <= MemTableLimit; i++ {
-		engine.Put([]byte(fmt.Sprintf("%s_%04d", prefixo, i)), []byte(fmt.Sprintf("valor_%04d", i)))
+		engine.Put(fmt.Appendf(nil, "%s_%04d", prefixo, i), fmt.Appendf(nil, "valor_%04d", i))
 	}
 }
 
-func esperarFlush(tb testing.TB, engine *Engine, n int) {
+func esperarFlush(tb testing.TB, engine *InMemEngine, n int) {
 	tb.Helper()
 	prazo := time.Now().Add(10 * time.Second)
 	for time.Now().Before(prazo) {

@@ -35,7 +35,7 @@ func TestMessageExchange(t *testing.T) {
 	}
 	defer persistencia.Close()
 
-	database := db.NewEngine()
+	database := db.NewInMemEngine()
 	cmdHandler := handler.New(database, persistencia)
 
 	go runServer(cmdHandler)

@@ -23,11 +23,11 @@ func (r ByteResponse) RawData() []byte {
 }
 
 type CommandHandler struct {
-	db  *db.Engine
+	db  db.DBEngine
 	aof *aof.AOF
 }
 
-func New(db *db.Engine, a *aof.AOF) *CommandHandler {
+func New(db db.DBEngine, a *aof.AOF) *CommandHandler {
 	return &CommandHandler{
 		db:  db,
 		aof: a,

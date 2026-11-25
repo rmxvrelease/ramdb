@@ -3,6 +3,7 @@ package main
 import (
 	//"fmt"
 	"log"
+	"os"
 	"ramdb/aof"
 	"ramdb/db"
 	"ramdb/handler"
@@ -22,14 +23,18 @@ func main() {
 	}
 	defer persistencia.Close()
 
-	db := db.NewEngine()
+	db := db.NewInMemEngine()
 	cmdHandler := handler.New(db, persistencia)
 
 	serv := server.Server{
 		ListenAddress:         ":8000",
 		RequestHandleCallback: cmdHandler.Handle,
 	}
-	serv.StartServing()
+	err = serv.StartServing()
+	if err != nil {
+		log.Printf("Erro não tratado no servidor: %v", err)
+		os.Exit(1)
+	}
 }
 
 /*

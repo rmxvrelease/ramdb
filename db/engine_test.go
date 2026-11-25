@@ -16,11 +16,11 @@ func TestEngine_Lifecycle_And_Flush(t *testing.T) {
 	limparSSTables()
 	defer limparSSTables()
 
-	engine := NewEngine()
+	engine := NewInMemEngine()
 
-	for i := 0; i < 4100; i++ {
-		key := []byte(fmt.Sprintf("chave_%04d", i))
-		val := []byte(fmt.Sprintf("valor_%04d", i))
+	for i := range 4100 {
+		key := fmt.Appendf(nil, "chave_%04d", i)
+		val := fmt.Appendf(nil, "valor_%04d", i)
 		err := engine.Put(key, val)
 		if err != nil {
 			t.Fatalf("Erro no Put da iteração %d: %v", i, err)
@@ -65,17 +65,17 @@ func TestEngine_ConcurrentStress_WithLogs(t *testing.T) {
 	logger := log.New(logFile, "[STRESS TEST] ", log.LstdFlags|log.Lmicroseconds)
 	logger.Println("Iniciando bateria de testes de concorrência massiva...")
 
-	engine := NewEngine()
+	engine := NewInMemEngine()
 	var wg sync.WaitGroup
 
 	numWorkers := 500
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
 
-			key := []byte(fmt.Sprintf("chave_concorrente_%d", workerID))
-			val := []byte(fmt.Sprintf("valor_%d", workerID))
+			key := fmt.Appendf(nil, "chave_concorrente_%d", workerID)
+			val := fmt.Appendf(nil, "valor_%d", workerID)
 
 			err := engine.Put(key, val)
 			if err != nil {
@@ -90,9 +90,9 @@ func TestEngine_ConcurrentStress_WithLogs(t *testing.T) {
 	wg.Wait()
 	logger.Println("Escritas finalizadas. Iniciando validação de leitura...")
 
-	for i := 0; i < numWorkers; i++ {
-		key := []byte(fmt.Sprintf("chave_concorrente_%d", i))
-		expectedVal := []byte(fmt.Sprintf("valor_%d", i))
+	for i := range numWorkers {
+		key := fmt.Appendf(nil, "chave_concorrente_%d", i)
+		expectedVal := fmt.Appendf(nil, "valor_%d", i)
 
 		val, err := engine.Get(key)
 		if err != nil {
@@ -110,7 +110,7 @@ func TestEngine_Tombstone_Lifecycle(t *testing.T) {
 	limparSSTables()
 	defer limparSSTables()
 
-	engine := NewEngine()
+	engine := NewInMemEngine()
 
 	t.Run("Cenario 1: Delecao pura na MemTable", func(t *testing.T) {
 		key := []byte("heroi1")
@@ -128,8 +128,8 @@ func TestEngine_Tombstone_Lifecycle(t *testing.T) {
 		key := []byte("heroi2")
 		engine.Put(key, []byte("superman"))
 
-		for i := 0; i < MemTableLimit; i++ {
-			engine.Put([]byte(fmt.Sprintf("lixo_%d", i)), []byte("dado"))
+		for i := range MemTableLimit {
+			engine.Put(fmt.Appendf(nil, "lixo_%d", i), []byte("dado"))
 		}
 
 		esperarFlush(t, engine, 1)
@@ -147,8 +147,8 @@ func TestEngine_Tombstone_Lifecycle(t *testing.T) {
 		engine.Put(key, []byte("flash"))
 		engine.Delete(key)
 
-		for i := 0; i < MemTableLimit; i++ {
-			engine.Put([]byte(fmt.Sprintf("lixo2_%d", i)), []byte("dado"))
+		for i := range MemTableLimit {
+			engine.Put(fmt.Appendf(nil, "lixo2_%d", i), []byte("dado"))
 		}
 
 		esperarFlush(t, engine, 2)
@@ -163,28 +163,28 @@ func TestEngine_Compaction(t *testing.T) {
 	limparSSTables()
 	defer limparSSTables()
 
-	engine := NewEngine()
+	engine := NewInMemEngine()
 
 	engine.Put([]byte("heroi1"), []byte("batman"))
 	engine.Put([]byte("heroi2"), []byte("superman"))
 
-	for i := 0; i < MemTableLimit; i++ {
-		engine.Put([]byte(fmt.Sprintf("lixo1_%d", i)), []byte("dado"))
+	for i := range MemTableLimit {
+		engine.Put(fmt.Appendf(nil, "lixo1_%d", i), []byte("dado"))
 	}
 
 	esperarFlush(t, engine, 1)
 
 	engine.Put([]byte("heroi1"), []byte("o_cavaleiro_das_trevas"))
 	engine.Delete([]byte("heroi2"))
-	for i := 0; i < MemTableLimit; i++ {
-		engine.Put([]byte(fmt.Sprintf("lixo2_%d", i)), []byte("dado"))
+	for i := range MemTableLimit {
+		engine.Put(fmt.Appendf(nil, "lixo2_%d", i), []byte("dado"))
 	}
 
 	esperarFlush(t, engine, 2)
 
 	engine.Put([]byte("vilao1"), []byte("coringa"))
-	for i := 0; i < MemTableLimit; i++ {
-		engine.Put([]byte(fmt.Sprintf("lixo3_%d", i)), []byte("dado"))
+	for i := range MemTableLimit {
+		engine.Put(fmt.Appendf(nil, "lixo3_%d", i), []byte("dado"))
 	}
 
 	esperarFlush(t, engine, 3)

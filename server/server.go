@@ -33,10 +33,10 @@ type Response interface {
 
 func encodeResponse(r Response) []byte {
 	// Se a resposta falhou (ex: chave não encontrada), retornamos a string do erro
-	if r.Fail() != nil {
+	err := r.Fail()
+	if err != nil {
 		return []byte("ERRO: " + r.Fail().Error())
 	}
-
 	// Caso contrário, retornamos o dado bruto (que já é []byte graças ao handler.go)
 	return r.RawData()
 }
